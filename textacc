@@ -1,0 +1,55 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import KFold, cross_val_predict
+from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler
+import xgboost as xgb
+import warnings
+
+warnings.filterwarnings('ignore')
+
+file_path = 'merged_dataset.csv'
+df = pd.read_csv(file_path)
+df.drop_duplicates(inplace=True)
+df.dropna(inplace=True)
+
+le = LabelEncoder()
+for col in df.select_dtypes(include=['object']).columns:
+    df[col] = le.fit_transform(df[col])
+
+df['FinalGrade'] = 3 - df['FinalGrade']
+
+# Features
+norm_cols = ['Attendance', 'Discussions', 'AssignmentCompletion', 'Resources', 'OnlineCourses', 'StudyHours', 'Motivation', 'StressLevel']
+scaler_mm = MinMaxScaler()
+df_norm = pd.DataFrame(scaler_mm.fit_transform(df[norm_cols]), columns=norm_cols, index=df.index)
+
+df['Engagement_Index'] = (df_norm['Attendance'] * 0.4 + df_norm['Discussions'] * 0.3 + df_norm['AssignmentCompletion'] * 0.3)
+df['Digital_Learning_Index'] = (df_norm['Resources'] + df_norm['OnlineCourses'] + df['EduTech'] + df['Internet']) / 4
+df['Behavioural_Intensity'] = (df_norm['StudyHours'] * 0.5 + df_norm['Motivation'] * 0.5)
+df['Risk_Vulnerability_Score'] = (df_norm['StressLevel'] + (1 - df_norm['Attendance'])) / 2
+
+# Extra interactions
+df['Interaction_1'] = df['Attendance'] * df['StudyHours']
+df['Interaction_2'] = df['Resources'] * df['Motivation']
+df['Interaction_3'] = df['Discussions'] * df['AssignmentCompletion']
+
+X = df.drop(['FinalGrade', 'ExamScore', 'Behavioural_Group', 'Governance_Risk_Profile', 'Predicted_Class', 'Cluster'], axis=1, errors='ignore') 
+y = df['FinalGrade']
+
+kf = KFold(n_splits=5, shuffle=True, random_state=42)
+
+model = xgb.XGBClassifier(
+    n_estimators=1200,
+    learning_rate=0.015,
+    max_depth=12,
+    min_child_weight=1,
+    subsample=0.8,
+    colsample_bytree=0.8,
+    random_state=42,
+    eval_metric='mlogloss'
+)
+
+y_pred = cross_val_predict(model, X, y, cv=kf)
+acc = accuracy_score(y, y_pred)
+print(f"XGBoost Accuracy with interactions: {acc:.4f}")
